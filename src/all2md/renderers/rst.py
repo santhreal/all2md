@@ -164,8 +164,8 @@ class RestructuredTextRenderer(NodeVisitor, InlineContentMixin, BaseRenderer):
         char_index = min(level - 1, len(chars) - 1)
         char = chars[char_index] if char_index >= 0 else "="
 
-        # Underline should be at least as long as text
-        return char * len(text)
+        # RST titles need a non-empty underline even when the title text is empty
+        return char * max(len(text), 1)
 
     def visit_document(self, node: Document) -> None:
         """Render a Document node.
