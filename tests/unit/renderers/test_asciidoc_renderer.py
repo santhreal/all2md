@@ -900,9 +900,6 @@ class TestTableRendering:
 |2+|Wide |.3+|Tall |2.3+|Both |
 |===
 "
-
-
-
 @pytest.mark.unit
 class TestOptionsValidation:
     """Tests for options validation."""

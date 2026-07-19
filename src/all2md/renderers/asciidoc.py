@@ -528,20 +528,21 @@ class AsciiDocRenderer(NodeVisitor, InlineContentMixin, BaseRenderer):
 
         self._output.append("|===\n")
 
+        def cell_span(cell: TableCell) -> str:
+            if cell.colspan > 1 and cell.rowspan > 1:
+                return f"{cell.colspan}.{cell.rowspan}+|"
+            if cell.colspan > 1:
+                return f"{cell.colspan}+|"
+            if cell.rowspan > 1:
+                return f".{cell.rowspan}+|"
+            return ""
+
         # Render header
         if node.header:
             self._output.append("|")
             for cell in node.header.cells:
                 content = self._render_inline_content(cell.content)
-                if cell.colspan > 1 and cell.rowspan > 1:
-                    span = f"{cell.colspan}.{cell.rowspan}+|"
-                elif cell.colspan > 1:
-                    span = f"{cell.colspan}+|"
-                elif cell.rowspan > 1:
-                    span = f".{cell.rowspan}+|"
-                else:
-                    span = ""
-                self._output.append(f"{span}{content} |")
+                self._output.append(f"{cell_span(cell)}{content} |")
             self._output.append("\n")
 
         # Render rows
@@ -549,15 +550,7 @@ class AsciiDocRenderer(NodeVisitor, InlineContentMixin, BaseRenderer):
             self._output.append("|")
             for cell in row.cells:
                 content = self._render_inline_content(cell.content)
-                if cell.colspan > 1 and cell.rowspan > 1:
-                    span = f"{cell.colspan}.{cell.rowspan}+|"
-                elif cell.colspan > 1:
-                    span = f"{cell.colspan}+|"
-                elif cell.rowspan > 1:
-                    span = f".{cell.rowspan}+|"
-                else:
-                    span = ""
-                self._output.append(f"{span}{content} |")
+                self._output.append(f"{cell_span(cell)}{content} |")
             self._output.append("\n")
 
         self._output.append("|===")
