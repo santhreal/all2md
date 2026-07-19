@@ -32,7 +32,6 @@ from all2md.ast import (
     Text,
 )
 from all2md.options.asciidoc import AsciiDocRendererOptions
-from all2md.parsers.asciidoc import AsciiDocParser
 from all2md.renderers.asciidoc import AsciiDocRenderer
 
 
@@ -885,9 +884,7 @@ class TestTableRendering:
                             cells=[
                                 TableCell(content=[Text(content="Wide")], colspan=2),
                                 TableCell(content=[Text(content="Tall")], rowspan=3),
-                                TableCell(
-                                    content=[Text(content="Both")], colspan=2, rowspan=3
-                                ),
+                                TableCell(content=[Text(content="Both")], colspan=2, rowspan=3),
                             ]
                         )
                     ],
@@ -896,10 +893,9 @@ class TestTableRendering:
         )
         result = AsciiDocRenderer().render_to_string(doc)
 
-        assert result == "|===
-|2+|Wide |.3+|Tall |2.3+|Both |
-|===
-"
+        assert result == "|===\n|2+|Wide |.3+|Tall |2.3+|Both |\n|===\n"
+
+
 @pytest.mark.unit
 class TestOptionsValidation:
     """Tests for options validation."""
