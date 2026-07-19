@@ -326,8 +326,8 @@ class TextileRenderer(NodeVisitor, InlineContentMixin, BaseRenderer):
                     self._output.append(f"{content}|")
             self._output.append("\n")
 
-        # Remove trailing newline as it will be added by block spacing
-        if self._output[-1] == "\n":
+        # Empty tables emit nothing; guard before trimming a trailing newline.
+        if self._output and self._output[-1] == "\n":
             self._output.pop()
 
     def visit_table_row(self, node: TableRow) -> None:
