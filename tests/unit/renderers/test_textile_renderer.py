@@ -353,7 +353,7 @@ class TestTextileTables:
         assert "|B|" in result
 
     def test_render_empty_table(self) -> None:
-        """Empty tables must render without IndexError on the trailing-newline trim."""
+        """Test rendering an empty table."""
         doc = Document(children=[Table()])
         renderer = TextileRenderer()
         result = renderer.render_to_string(doc)
@@ -361,7 +361,7 @@ class TestTextileTables:
         assert result == "\n"
 
     def test_render_empty_table_after_heading(self) -> None:
-        """Empty table after other blocks must not corrupt prior output."""
+        """Test rendering an empty table after a heading."""
         doc = Document(
             children=[
                 Heading(level=1, content=[Text(content="Title")]),
@@ -374,7 +374,7 @@ class TestTextileTables:
         assert result == "h1. Title\n"
 
     def test_convert_empty_html_table_to_textile(self) -> None:
-        """Valid empty HTML tables must convert to textile without IndexError."""
+        """Test converting an empty HTML table to textile."""
         result = convert("<table></table>", source_format="html", target_format="textile")
         assert result == "\n"
 
