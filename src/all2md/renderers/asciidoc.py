@@ -533,7 +533,15 @@ class AsciiDocRenderer(NodeVisitor, InlineContentMixin, BaseRenderer):
             self._output.append("|")
             for cell in node.header.cells:
                 content = self._render_inline_content(cell.content)
-                self._output.append(f"{content} |")
+                if cell.colspan > 1 and cell.rowspan > 1:
+                    span = f"{cell.colspan}.{cell.rowspan}+|"
+                elif cell.colspan > 1:
+                    span = f"{cell.colspan}+|"
+                elif cell.rowspan > 1:
+                    span = f".{cell.rowspan}+|"
+                else:
+                    span = ""
+                self._output.append(f"{span}{content} |")
             self._output.append("\n")
 
         # Render rows
@@ -541,7 +549,15 @@ class AsciiDocRenderer(NodeVisitor, InlineContentMixin, BaseRenderer):
             self._output.append("|")
             for cell in row.cells:
                 content = self._render_inline_content(cell.content)
-                self._output.append(f"{content} |")
+                if cell.colspan > 1 and cell.rowspan > 1:
+                    span = f"{cell.colspan}.{cell.rowspan}+|"
+                elif cell.colspan > 1:
+                    span = f"{cell.colspan}+|"
+                elif cell.rowspan > 1:
+                    span = f".{cell.rowspan}+|"
+                else:
+                    span = ""
+                self._output.append(f"{span}{content} |")
             self._output.append("\n")
 
         self._output.append("|===")
