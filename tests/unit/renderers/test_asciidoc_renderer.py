@@ -873,6 +873,41 @@ class TestTableRendering:
 
         assert "|===" in result
 
+    def test_table_cell_colspan_rowspan_prefixes(self):
+        """Table cells emit AsciiDoc span prefixes (2+, .3+, 2.3+)."""
+        doc = Document(
+            children=[
+                Table(
+                    header=None,
+                    rows=[
+                        TableRow(
+                            cells=[
+                                TableCell(content=[Text(content="Wide")], colspan=2),
+                                TableCell(content=[Text(content="Tall")], rowspan=3),
+                                TableCell(
+                                    content=[Text(content="Both")], colspan=2, rowspan=3
+                                ),
+                            ]
+                        )
+                    ],
+                )
+            ]
+        )
+        result = AsciiDocRenderer().render_to_string(doc)
+
+        assert "2+Wide" in result
+        assert ".3+Tall" in result
+        assert "2.3+Both" in result
+
+        parsed = AsciiDocParser().parse(result)
+        table = parsed.children[0]
+        assert isinstance(table, Table)
+        cells = table.header.cells if table.header is not None else table.rows[0].cells
+        assert cells[0].colspan == 2
+        assert cells[1].rowspan == 3
+        assert cells[2].colspan == 2
+        assert cells[2].rowspan == 3
+
 
 @pytest.mark.unit
 class TestOptionsValidation:
