@@ -896,7 +896,11 @@ class TestTableRendering:
         )
         result = AsciiDocRenderer().render_to_string(doc)
 
-        assert result == "|===\n|2+|Wide |.3+|Tall |2.3+|Both |\n|===\n"
+        assert result == "|===
+|2+|Wide |.3+|Tall |2.3+|Both |
+|===
+"
+
 
 
 @pytest.mark.unit
