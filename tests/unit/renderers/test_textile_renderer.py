@@ -330,6 +330,29 @@ class TestTextileLists:
         assert tables[0].rows[0].cells[0].content[0].content == "1"
 
 
+    def test_math_block_inside_list_item_keeps_bc_markup(self) -> None:
+        """MathBlock uses bc. markup and needs a blank line like CodeBlock."""
+        doc = Document(
+            children=[
+                List(
+                    ordered=False,
+                    items=[
+                        ListItem(
+                            children=[
+                                Paragraph(content=[Text(content="intro")]),
+                                MathBlock(content="x^2"),
+                            ]
+                        ),
+                    ],
+                )
+            ]
+        )
+        result = TextileRenderer().render_to_string(doc)
+
+        assert result == "* intro\n\nbc. x^2\n"
+        assert "intro bc." not in result
+
+
 @pytest.mark.unit
 class TestTextileTables:
     """Tests for Textile table rendering."""

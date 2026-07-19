@@ -268,17 +268,15 @@ class TextileRenderer(NodeVisitor, InlineContentMixin, BaseRenderer):
 
         self._output.append(f"{prefix} ")
 
-        # Blank line before/after tables etc.; single newline around nested lists.
-        block_break = (Table, CodeBlock, BlockQuote, ThematicBreak, HTMLBlock)
         for i, child in enumerate(node.children):
             if i > 0:
                 prev = node.children[i - 1]
                 if isinstance(child, List) or isinstance(prev, List):
                     self._output.append("\n")
-                elif isinstance(child, block_break) or isinstance(prev, block_break):
-                    self._output.append("\n\n")
-                else:
+                elif isinstance(child, Paragraph) and isinstance(prev, Paragraph):
                     self._output.append(" ")
+                else:
+                    self._output.append("\n\n")
 
             if isinstance(child, Paragraph):
                 content = self._render_inline_content(child.content)
