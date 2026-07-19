@@ -21,7 +21,7 @@ Tests cover:
 
 """
 
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
 
 import pytest
@@ -63,6 +63,7 @@ from all2md.ast import (
 )
 from all2md.exceptions import InvalidOptionsError
 from all2md.options.textile import TextileRendererOptions
+from all2md.parsers.textile import TextileParser
 from all2md.renderers.textile import TextileRenderer
 
 
@@ -297,9 +298,6 @@ class TestTextileLists:
 
     def test_table_inside_list_item_keeps_table_markup(self) -> None:
         """Tables inside list items must stay recognizable Textile table markup."""
-        from all2md.parsers.textile import TextileParser
-        from io import BytesIO
-
         doc = Document(
             children=[
                 List(
@@ -331,6 +329,9 @@ class TestTextileLists:
         assert len(tables[0].header.cells) == 1
         assert tables[0].rows[0].cells[0].content[0].content == "1"
 
+
+@pytest.mark.unit
+class TestTextileTables:
     """Tests for Textile table rendering."""
 
     def test_render_simple_table(self) -> None:
