@@ -292,10 +292,45 @@ class TestTextileLists:
         assert "* Top" in result
         assert "** Nested 1" in result
         assert "** Nested 2" in result
+        # Nested markers must start on their own line, not share the parent item line.
+        assert "* Top\n** Nested 1" in result
 
+    def test_table_inside_list_item_keeps_table_markup(self) -> None:
+        """Tables inside list items must stay recognizable Textile table markup."""
+        from all2md.parsers.textile import TextileParser
+        from io import BytesIO
 
-@pytest.mark.unit
-class TestTextileTables:
+        doc = Document(
+            children=[
+                List(
+                    ordered=False,
+                    items=[
+                        ListItem(
+                            children=[
+                                Paragraph(content=[Text(content="intro")]),
+                                Table(
+                                    header=TableRow(cells=[TableCell(content=[Text(content="H")])]),
+                                    rows=[TableRow(cells=[TableCell(content=[Text(content="1")])])],
+                                ),
+                                Paragraph(content=[Text(content="outro")]),
+                            ]
+                        ),
+                    ],
+                )
+            ]
+        )
+        result = TextileRenderer().render_to_string(doc)
+
+        assert result == "* intro\n\n|_.H|\n|1|\n\noutro\n"
+        assert "intro |_.H|" not in result
+
+        reparsed = TextileParser().parse(BytesIO(result.encode()))
+        tables = [c for c in reparsed.children if isinstance(c, Table)]
+        assert len(tables) == 1
+        assert tables[0].header is not None
+        assert len(tables[0].header.cells) == 1
+        assert tables[0].rows[0].cells[0].content[0].content == "1"
+
     """Tests for Textile table rendering."""
 
     def test_render_simple_table(self) -> None:

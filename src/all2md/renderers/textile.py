@@ -268,16 +268,16 @@ class TextileRenderer(NodeVisitor, InlineContentMixin, BaseRenderer):
 
         self._output.append(f"{prefix} ")
 
-        # Render children inline
+        # Later children need their own line; a space glues block markup into the item text.
         for i, child in enumerate(node.children):
+            if i > 0:
+                self._output.append("\n")
+
             if isinstance(child, Paragraph):
                 content = self._render_inline_content(child.content)
                 self._output.append(content)
             else:
                 child.accept(self)
-
-            if i < len(node.children) - 1:
-                self._output.append(" ")
 
     def visit_table(self, node: Table) -> None:
         """Render a Table node.
