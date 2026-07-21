@@ -61,6 +61,17 @@ class TestBasicRendering:
         assert "Title" in rst
         assert "=====" in rst
 
+    def test_empty_heading_keeps_underline(self) -> None:
+        """Empty ATX headings (markdown ``#``) must still emit an RST underline."""
+        doc = Document(
+            children=[
+                Heading(level=1, content=[]),
+                Paragraph(content=[Text(content="x")]),
+            ]
+        )
+        rst = RestructuredTextRenderer().render_to_string(doc)
+        assert rst == "\n=\n\nx"
+
     def test_heading_levels(self) -> None:
         """Test rendering different heading levels."""
         doc = Document(
