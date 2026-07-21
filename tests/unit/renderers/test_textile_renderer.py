@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from all2md import convert
 from all2md.ast import (
     BlockQuote,
     Code,
@@ -350,6 +351,35 @@ class TestTextileTables:
 
         assert "|A|" in result
         assert "|B|" in result
+
+    def test_render_empty_table(self) -> None:
+        """Test rendering an empty table."""
+        doc = Document(children=[Table()])
+        renderer = TextileRenderer()
+        result = renderer.render_to_string(doc)
+
+        assert result == "\n"
+
+    def test_render_empty_table_after_heading(self) -> None:
+        """Test rendering an empty table after a heading."""
+        doc = Document(
+            children=[
+                Heading(level=1, content=[Text(content="Title")]),
+                Table(),
+            ]
+        )
+        renderer = TextileRenderer()
+        result = renderer.render_to_string(doc)
+
+        assert result == "h1. Title\n"
+
+    def test_convert_empty_html_table_to_textile(self) -> None:
+        """Test converting an empty HTML table to textile."""
+        result = convert("<table></table>", source_format="html", target_format="textile")
+        assert result == "\n"
+
+        result = convert("<table><thead></thead><tbody></tbody></table>", source_format="html", target_format="textile")
+        assert result == "\n"
 
     def test_render_table_with_colspan(self) -> None:
         """Test rendering table with colspan."""
