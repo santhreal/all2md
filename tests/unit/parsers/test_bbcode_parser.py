@@ -496,3 +496,33 @@ This is a [b]quoted[/b] text.
         # Should create at least one paragraph
         assert len(doc.children) >= 1
         assert any(isinstance(child, Paragraph) for child in doc.children)
+
+    def test_strip_color_keeps_multiple_inner_inlines(self) -> None:
+        """parse_color_size=False must keep nested formatting beside plain text."""
+        parser = BBCodeParser(BBCodeParserOptions(parse_color_size=False))
+        doc = parser.parse("[color=red][b]bold[/b] and more[/color]")
+
+        assert len(doc.children) == 1
+        assert isinstance(doc.children[0], Paragraph)
+        content = doc.children[0].content
+        assert len(content) == 2
+        assert isinstance(content[0], Strong)
+        assert isinstance(content[0].content[0], Text)
+        assert content[0].content[0].content == "bold"
+        assert isinstance(content[1], Text)
+        assert content[1].content == " and more"
+
+    def test_strip_size_keeps_multiple_inner_inlines(self) -> None:
+        """parse_color_size=False must keep nested italics beside plain text."""
+        parser = BBCodeParser(BBCodeParserOptions(parse_color_size=False))
+        doc = parser.parse("[size=12][i]x[/i] y[/size]")
+
+        assert len(doc.children) == 1
+        assert isinstance(doc.children[0], Paragraph)
+        content = doc.children[0].content
+        assert len(content) == 2
+        assert isinstance(content[0], Emphasis)
+        assert isinstance(content[0].content[0], Text)
+        assert content[0].content[0].content == "x"
+        assert isinstance(content[1], Text)
+        assert content[1].content == " y"
