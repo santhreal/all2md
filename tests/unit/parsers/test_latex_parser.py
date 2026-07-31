@@ -482,6 +482,18 @@ Bob & 25 & LA
         assert doc is not None
 
 
+    def test_toplevel_inline_nodes_grouped_into_paragraph(self) -> None:
+        """Test that top-level inline LaTeX nodes are grouped into Paragraph AST nodes."""
+        parser = LatexParser()
+        doc = parser.parse(r"This is \textbf{bold} text.")
+
+        assert len(doc.children) == 1
+        assert isinstance(doc.children[0], Paragraph)
+        para = doc.children[0]
+        assert len(para.content) == 3
+        assert isinstance(para.content[0], Text) and para.content[0].content == "This is "
+        assert isinstance(para.content[1], Strong)
+        assert isinstance(para.content[2], Text) and para.content[2].content == " text."
 class TestLatexRenderer:
     """Tests for LaTeX renderer."""
 

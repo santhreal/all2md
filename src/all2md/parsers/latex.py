@@ -206,6 +206,8 @@ class LatexParser(BaseParser):
                 else:
                     children.append(ast_nodes)
 
+        # Group top-level inline nodes into paragraphs
+        children = self._group_inline_nodes(children)
         # Extract metadata
         doc_metadata: DocumentMetadata = self.extract_metadata(content)
         # Merge with preamble metadata
