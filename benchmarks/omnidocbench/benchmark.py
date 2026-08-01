@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from all2md.options.pdf import PdfOptions
 
 SCHEMA_VERSION = 2
-ORACLE_SCHEMA_VERSION = 3
+ORACLE_SCHEMA_VERSION = 4
 
 
 class DegradedConversionError(RuntimeError):
@@ -160,9 +160,18 @@ def evaluate_corpus(
     ground_truth: Mapping[str, GroundTruthPage],
     *,
     ocr_languages: str = "eng+chi_sim",
+    progress_every: int = 50,
 ) -> list[PageEvaluation]:
     """Call ``to_ast`` once per page and score its projection independently."""
-    results = [_evaluate_page(page, ground_truth[page.page_id], ocr_languages) for page in snapshot.pages]
+    # The loop converts 981 PDFs and takes hours. Without a heartbeat a run killed at the job
+    # timeout leaves a log that stops after the corpus line, with no way to tell whether it died
+    # on page 3 or page 970.
+    results = []
+    for index, page in enumerate(snapshot.pages, start=1):
+        results.append(_evaluate_page(page, ground_truth[page.page_id], ocr_languages))
+        if progress_every > 0 and (index % progress_every == 0 or index == len(snapshot.pages)):
+            failed = sum(result.error_type is not None for result in results)
+            print(f"scored {index}/{len(snapshot.pages)} pages; failures={failed}", flush=True)
     results.sort(key=lambda result: result.page_id)
     if len({result.page_id for result in results}) != len(snapshot.pages):
         raise RuntimeError("evaluation did not produce one unique result per selected PDF")

@@ -11,8 +11,20 @@ The benchmark fixes each external input by immutable identity:
 - OmniDocBench v1.0 dataset: `f5f559bddf50e36f7f9899d842d0006f13ce8afc`
 - `OmniDocBench.json` SHA-256: `2fafe9329dc92fc426b30036aee51c716b3fcdcc1d20cb964dc7670579533817`
 - Expected annotations and page PDFs: 981
-- Local oracle schema: 3
+- Aggregate page-PDF manifest SHA-256: `0f658f4cbdc3fdb0ea204af14f8c467ad38e46ecabc0929d0b22ec4f5b54b2f7`
+- Local oracle schema: 4
 - Normalized result schema: 2
+
+The annotation JSON has always had a committed digest, but each page PDF's digest used to be
+recorded from whatever bytes the first download produced, which made the cache manifest
+trust-on-first-use. That matters because a truncated HTTP response is not an error: CPython's HTTP
+client returns a short body without raising, so a mid-stream reset would have silently redefined a
+page's ground truth, and a `record_baseline` dispatch would have committed the resulting score. The
+manifest digest above is taken over `<page_id>\0<sha256>\0<size_bytes>` for all 981 pages in sorted
+order and is checked before any snapshot is returned, so any divergence is a hard failure. It proves
+the bytes match the snapshot it was computed from; it is not an upstream-published checksum. A
+`--limit` run holds a partial manifest and skips the check, and is already barred from the gate for
+lacking the full denominator.
 
 The OmniDocBench evaluator source is Apache-2.0, but this lane does not execute it. The dataset is different. Its card states that collected PDFs are for research purposes only and must not be used commercially. The adapter downloads corpus bytes into `benchmarks/omnidocbench/.cache/`, which Git ignores. Do not commit the cache, annotation JSON, page PDFs, or images. CI artifacts contain only derived scores.
 
@@ -63,7 +75,15 @@ The normalized result can record six higher-is-better metrics:
 | Table content similarity | Pages with annotated or emitted tables |
 | Formula content similarity | Pages with annotated or emitted inline or isolated formulae |
 
-Each dimension records the aggregate, eligible-page denominator, population variance, and exact page scores. Text comparison uses exact normalized Levenshtein similarity after Unicode normalization and case folding. Whitespace is deleted only where it touches ideographic text, because OCR inserts spurious spaces between CJK glyphs; every other whitespace run collapses to a single space, so losing Latin word boundaries costs score. The deletion runs on both sides of NFKC, since NFKC folds fullwidth punctuation to ASCII and would otherwise leave the spurious spaces beside those glyphs in place: of the 743 pinned pages whose text contains such a glyph, padding it with spaces cost score on 588 before the class was widened and on none after. Table structure compares row, column, and expanded cell-slot counts; table structure and content share one exact best order-preserving alignment. Formulae use the same alignment rule, with unmatched items scored as zero. Inline and isolated formulae align only with the same kind; their LaTeX comparison preserves case and semantic whitespace.
+On the current PDF parser only the first two of those six are scored. A full 981-page run emits no
+`Table` and no `MathBlock`/`MathInline` node at all, so the other four report `unsupported` with the
+erased eligibility named: 317 pages carry table ground truth and 260 carry formula ground truth. The
+lane therefore gates text content and reading order today, and the table and formula oracles begin
+gating as a reviewed ratchet change the moment the parser gains those AST capabilities. They are
+implemented and tested now so that gaining the capability is a baseline review rather than new
+measurement code written under pressure.
+
+Each dimension records the aggregate, eligible-page denominator, population variance, and exact page scores. Text comparison uses exact normalized Levenshtein similarity after Unicode normalization and case folding. Whitespace is deleted only where it touches ideographic text, because OCR inserts spurious spaces between CJK glyphs; every other whitespace run collapses to a single space, so losing Latin word boundaries costs score. The deletion runs on both sides of NFKC, since NFKC folds fullwidth punctuation to ASCII and would otherwise leave the spurious spaces beside those glyphs in place: of the 743 pinned pages whose text contains such a glyph, padding it with spaces cost score on 588 before the class was widened and on none after. The fullwidth ASCII letters and digits inside that block are excluded, because they are not ideographs and including them would make a fullwidth rendering of Latin text lose its word boundaries for free, which is the failure the rule narrows to avoid; excluding them changes the normalized form of none of the 87,813 pinned strings. Table structure compares row, column, and expanded cell-slot counts; table structure and content share one exact best order-preserving alignment. Formulae use the same alignment rule, with unmatched items scored as zero. Inline and isolated formulae align only with the same kind; their LaTeX comparison preserves case and semantic whitespace, and applies the same NFKC folding as the text stream. Without that folding the two metrics disagree about compatibility-equivalent spellings: the dataset writes one formula's trailing comma fullwidth in the span's `latex` field and as ASCII in the detection's `text` field, which made perfect text fidelity and perfect formula fidelity mutually unsatisfiable on 9 pinned pages and capped formula content similarity at 0.99924404.
 
 Reading order measures block segmentation and ordering. It is an edit similarity over the block-category sequence, scaled by the order agreement of the emitted blocks matched to their most similar annotated block. The coverage term alone is not an order metric: eleven text categories collapse to one `text_block` token, so fully reversed output scored exactly 1.0 on 153 of the 981 pinned pages, and any permutation was free on the 113 pages whose kinds are a single repeated token. Reversal still scores 1.0 on the 15 pages that carry fewer than two text blocks, where there is no order to disagree about. On the pinned corpus a projection that reproduces the annotation exactly scores 1.0 on both dimensions; merging every text block into one paragraph scores 0.129 on order and still 1.0 on text; reversing the blocks scores 0.020 on order and 0.331 on text. Recovering a table's cells as a paragraph costs exactly one kind substitution and nothing else, so it strictly beats deleting the table on all 317 pages that have table ground truth. Every degraded variant scores at or below exact reproduction on all six dimensions across all 981 pages.
 

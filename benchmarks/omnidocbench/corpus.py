@@ -25,6 +25,14 @@ DATASET_ID = "opendatalab/OmniDocBench"
 REVISION = "f5f559bddf50e36f7f9899d842d0006f13ce8afc"
 ANNOTATION_SHA256 = "2fafe9329dc92fc426b30036aee51c716b3fcdcc1d20cb964dc7670579533817"
 EXPECTED_PAGES = 981
+# SHA-256 over "<page_id>\0<sha256>\0<size_bytes>\n" for all 981 page PDFs in sorted page order.
+# The annotation JSON has a committed digest, but each page PDF's digest was previously recorded
+# from whatever bytes the first download produced, so the manifest was trust-on-first-use: a
+# mid-stream truncation, which CPython's HTTP client does not report as an error, would silently
+# redefine a page's ground truth and bake the wrong score into a recorded baseline. Anchoring the
+# assembled manifest to one constant makes any such divergence a hard failure. It proves the bytes
+# match the snapshot this constant was computed from; it is not an upstream-published checksum.
+CORPUS_MANIFEST_SHA256 = "0f658f4cbdc3fdb0ea204af14f8c467ad38e46ecabc0929d0b22ec4f5b54b2f7"
 ANNOTATION_FILENAME = "OmniDocBench.json"
 INDEX_SCHEMA_VERSION = 1
 MANIFEST_SCHEMA_VERSION = 1
@@ -175,6 +183,7 @@ def load_corpus(
         if index_path.exists():
             rows = _validated_index_rows(index_path, selected=selected, limit=limit)
             _validate_index_manifest_agreement(rows, manifest)
+            _verify_manifest_anchor(manifest)
             if all(page.page_id in manifest for page in selected):
                 return _load_warm_cache(
                     revision_dir=revision_dir,
@@ -196,6 +205,7 @@ def load_corpus(
             if existing is not None and existing != entry:
                 raise CorpusCacheError(f"artifact manifest digest changed for {page_id!r}")
             manifest[page_id] = entry
+        _verify_manifest_anchor(manifest)
         if discovered or not manifest_path.exists():
             _write_manifest(manifest_path, manifest)
 
@@ -217,6 +227,21 @@ def _validate_options(*, limit: int | None, workers: int) -> None:
         raise ValueError(f"limit must be between 1 and {EXPECTED_PAGES}")
     if isinstance(workers, bool) or not isinstance(workers, int) or workers < 1:
         raise ValueError("workers must be a positive integer")
+
+
+def _verify_manifest_anchor(manifest: dict[str, _ManifestPage]) -> None:
+    """Tie a complete artifact manifest to its committed aggregate digest."""
+    if len(manifest) != EXPECTED_PAGES:
+        # A `--limit` run holds a partial manifest, which the aggregate cannot describe. Such a run
+        # is already barred from the gate for lacking the full denominator.
+        return
+    digest = hashlib.sha256()
+    for page_id in sorted(manifest):
+        entry = manifest[page_id]
+        digest.update(f"{page_id}\x00{entry.sha256}\x00{entry.size_bytes}\n".encode())
+    actual = digest.hexdigest()
+    if actual != CORPUS_MANIFEST_SHA256:
+        raise CorpusCacheError(f"corpus manifest SHA-256 mismatch: expected {CORPUS_MANIFEST_SHA256}, got {actual}")
 
 
 def _prepare_revision_dir(cache_dir: Path) -> Path:

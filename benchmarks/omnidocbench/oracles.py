@@ -48,11 +48,16 @@ SUPPORTED_CATEGORIES = TEXT_CATEGORIES | frozenset({"table", "equation_isolated"
 _WHITESPACE = re.compile(r"\s+")
 # Deleting whitespace only next to ideographic text: CJK OCR inserts spurious inter-glyph
 # spaces, but deleting Latin spaces makes total word-boundary loss score a perfect 1.0. The
-# fullwidth block is included because NFKC folds those glyphs to ASCII, which would otherwise
-# leave the spurious spaces beside fullwidth punctuation in place. Of the 743 pinned pages whose
-# text contains such a glyph, padding it with spaces cost score on 588 before this widening and
-# on none after it.
-_IDEOGRAPHIC = "\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff01-\uff60\uffe0-\uffe6"
+# fullwidth punctuation ranges are included because NFKC folds those glyphs to ASCII, which would
+# otherwise leave the spurious spaces beside fullwidth punctuation in place. Of the 743 pinned
+# pages whose text contains such a glyph, padding it with spaces cost score on 588 before this
+# widening and on none after it. The fullwidth ASCII alphanumerics inside that block are excluded:
+# they are letters and digits, not ideographs, so including them would delete the word boundaries
+# in a fullwidth rendering of Latin text for free, which is the exact failure the rule narrows to
+# avoid.
+_IDEOGRAPHIC = (
+    "\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff" "\uff01-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff60" "\uffe0-\uffe6"
+)
 _CJK_ADJACENT_WHITESPACE = re.compile(rf"(?<=[{_IDEOGRAPHIC}])\s+|\s+(?=[{_IDEOGRAPHIC}])")
 _ProjectionT = TypeVar("_ProjectionT")
 
@@ -158,7 +163,12 @@ def normalize_text(value: str) -> str:
 
 def normalize_formula(value: str) -> str:
     """Remove outer display delimiters without changing LaTeX semantics."""
-    normalized = value.strip()
+    # NFKC for the same reason the text stream applies it: the dataset spells the same character
+    # fullwidth in a span's `latex` field and ASCII in the detection's `text` field. Without it,
+    # perfect text fidelity and perfect formula fidelity are mutually unsatisfiable on 9 pinned
+    # pages, permanently capping formula_content_similarity at 0.99924404. NFKC neither casefolds
+    # nor collapses whitespace, so it does not weaken the case- and space-sensitivity below.
+    normalized = unicodedata.normalize("NFKC", value).strip()
     for prefix, suffix in (("$$", "$$"), ("\\[", "\\]"), ("$", "$")):
         if normalized.startswith(prefix) and normalized.endswith(suffix):
             return normalized[len(prefix) : -len(suffix)].strip()
@@ -226,12 +236,12 @@ def project_ast(document: Document) -> PageProjection:
             content, _ = block.get_preferred_representation("latex")
             formulas.append(FormulaProjection("block", content))
 
-        if not isinstance(block, MathBlock):
-            formulas.extend(
-                FormulaProjection("inline", node.get_preferred_representation("latex")[0])
-                for node in _all_nodes(block)
-                if isinstance(node, MathInline)
-            )
+        # Unconditional: MathBlock is a leaf, so this finds nothing there and needs no guard.
+        formulas.extend(
+            FormulaProjection("inline", node.get_preferred_representation("latex")[0])
+            for node in _all_nodes(block)
+            if isinstance(node, MathInline)
+        )
 
     return PageProjection(
         text_blocks=tuple(text_blocks),
@@ -296,7 +306,7 @@ def _reading_rank(detection: Mapping[str, Any], record: Mapping[str, Any]) -> tu
     Every ``header``, ``footer``, ``page_number``, and ``page_footnote`` detection in the pinned
     dataset carries ``order: null``. Sorting those last put running content after the body, which
     made dropping a header score higher than emitting it in its true position. A category-only
-    rank is not enough: about one page number in seven sits at the top of the page.
+    rank is not enough: 146 of the 669 pinned page_number detections sit above the page midline.
     """
     order = detection.get("order")
     if isinstance(order, int) and not isinstance(order, bool):
