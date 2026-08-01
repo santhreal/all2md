@@ -42,7 +42,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allow-conversion-failures",
         action="store_true",
-        help="allow a --skip-gate measurement to succeed with recorded conversion failures",
+        help=(
+            "allow a --skip-gate measurement to succeed, or a --write-baseline candidate to record "
+            "expected failures, when pages failed to convert"
+        ),
     )
     parser.add_argument("--write-baseline", type=Path, help="write a baseline from a complete run")
     parser.add_argument(
@@ -57,18 +60,23 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _git_identity() -> tuple[str, bool]:
     """Record the source commit and whether the worktree differs from it."""
+    # `cwd=HERE` because the identity being recorded is all2md's, not that of whatever repository
+    # the process happened to start in. Without it a run launched from another checkout records
+    # that repository's commit with `worktree_dirty=False`, and `--write-baseline` accepts it.
     try:
         commit_result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             check=True,
             capture_output=True,
             text=True,
+            cwd=HERE,
         )
         status_result = subprocess.run(
             ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
             check=True,
             capture_output=True,
             text=True,
+            cwd=HERE,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise RuntimeError(f"cannot record the all2md source identity: {exc}") from exc
@@ -214,6 +222,14 @@ def run(args: argparse.Namespace) -> int:
     if args.write_baseline:
         if not snapshot.complete:
             raise RuntimeError("cannot write a baseline from an incomplete corpus")
+        if failures and not args.allow_conversion_failures:
+            # The flag governs whether a run may succeed despite conversion failures. Recording
+            # those failures as expected in a committed baseline is the more consequential form of
+            # that decision, so it must be asked for just as explicitly.
+            raise RuntimeError(
+                f"refusing to record {failures} conversion failure(s) in a baseline without "
+                "--allow-conversion-failures"
+            )
         candidate = emit_baseline(normalized, default_tolerance=args.default_tolerance)
         candidate_verdict = compare(normalized, candidate)
         if candidate_verdict.failed:

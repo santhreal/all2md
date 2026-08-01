@@ -23,9 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `benchmarks/omnidocbench` downloads the immutable 981-page v1.0 corpus, calls
   `all2md.to_ast` once for each page, and compares AST text, tables, formulae, and reading
   order directly with annotation fields. Dimensions the parser cannot yet express are reported
-  as unsupported instead of scored, so absent capabilities cannot earn credit. A fail-closed
+  as unsupported instead of scored, so absent capabilities cannot earn credit. On the current PDF
+  parser that is four of the six dimensions, so the lane gates text content and reading order today
+  and the table and formula oracles begin gating as a reviewed ratchet change when the parser gains
+  `Table` and math emission. Every page PDF is anchored to a committed aggregate digest, so a
+  truncated download cannot silently redefine the ground truth. A fail-closed
   ratchet records score denominators, variance, and exact page scores, rejects
-  corpus, oracle, parser-policy, parser-runtime, or conversion drift, and requires review for
+  corpus, oracle, parser-policy, parser-runtime, worktree-cleanliness, or conversion drift, and requires review for
   both regressions and improvements. The full lane runs only on a monthly schedule or manual
   dispatch. Pull request and release CI keep using synthetic, network-free tests. The first
   scheduled baseline is recorded by dispatching the workflow with `record_baseline` enabled;

@@ -175,20 +175,26 @@ def test_git_identity_records_explicit_worktree_state(
     status: str,
     dirty: bool,
 ) -> None:
-    """Committed, modified, and untracked source states must remain distinguishable."""
-    outputs = iter(["b" * 40 + "\n", status])
-    commands: list[list[str]] = []
+    """Committed, modified, and untracked source states must remain distinguishable.
 
-    def fake_run(command: list[str], **_kwargs):
-        commands.append(command)
+    Both commands must also run in all2md's own checkout. Without ``cwd``, ``git`` answers about
+    whatever repository the process was launched from, so a run started elsewhere records that
+    repository's commit with ``worktree_dirty=False`` and ``--write-baseline`` accepts the false
+    provenance.
+    """
+    outputs = iter(["b" * 40 + "\n", status])
+    calls: list[tuple[list[str], object]] = []
+
+    def fake_run(command: list[str], **kwargs):
+        calls.append((command, kwargs.get("cwd")))
         return SimpleNamespace(stdout=next(outputs))
 
     monkeypatch.setattr(run.subprocess, "run", fake_run)
 
     assert run._git_identity() == ("b" * 40, dirty)
-    assert commands == [
-        ["git", "rev-parse", "HEAD"],
-        ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
+    assert calls == [
+        (["git", "rev-parse", "HEAD"], run.HERE),
+        (["git", "status", "--porcelain=v1", "--untracked-files=normal"], run.HERE),
     ]
 
 
@@ -208,6 +214,24 @@ def test_skip_gate_requires_explicit_conversion_failure_permission(
     args = _args(tmp_path, "--skip-gate", *extra)
 
     assert run.run(args) == expected_status
+
+
+def test_writing_a_baseline_with_conversion_failures_requires_the_same_permission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Blessing failures in a committed baseline is the more consequential form of that consent.
+
+    ``--allow-conversion-failures`` used to be read only on the ``--skip-gate`` path, so
+    ``--write-baseline`` recorded conversion failures as expected without the operator ever asking.
+    Every later run then compares against a baseline that treats those pages as permitted, which is
+    exactly the state the flag exists to make deliberate.
+    """
+    _stub_scored_run(monkeypatch, dirty=False, failure=True)
+    target = tmp_path / "candidate.json"
+
+    with pytest.raises(RuntimeError, match="refusing to record 1 conversion failure"):
+        run.run(_args(tmp_path, "--write-baseline", str(target)))
 
 
 def test_gate_still_authorizes_recorded_conversion_failures(

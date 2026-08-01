@@ -7,6 +7,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from all2md.ast.nodes import (
+    Code,
     CodeBlock,
     Document,
     Heading,
@@ -194,7 +195,7 @@ def test_latin_word_boundary_loss_is_penalized_but_cjk_glyph_spacing_is_not() ->
 def test_every_text_bearing_annotation_category_is_ground_truth() -> None:
     """A parser must not score higher for dropping captions, headers, footers, or references.
 
-    The dataset annotates text in eleven categories beyond text_block/title/code_txt. Scoring
+    The dataset annotates text in ten categories beyond text_block/title/code_txt. Scoring
     only that subset compared a filtered ground truth against the whole-page AST, so losing
     9.3% of the corpus text scored 1.0 while perfect fidelity scored 0.82 -- and on 63 pinned
     pages perfect fidelity scored exactly 0.0. The projection must cover the whole page.
@@ -419,7 +420,7 @@ def test_unordered_running_content_is_placed_by_geometry() -> None:
     ``order: null``. Sorting those last appended running content after the body, so a parser that
     emitted the header first mismatched the ground truth and a parser that deleted the header
     matched it better -- a mean inversion on 663 of 981 pages. A category-only rank is not enough:
-    about one page number in seven sits at the top of the page.
+    146 of the 669 pinned page_number detections, about one in five, sit above the page midline.
     """
     record = {
         "page_info": {"page_no": 0, "image_path": "p.jpg", "height": 1000, "width": 800},
@@ -511,9 +512,17 @@ def test_identical_output_scores_a_perfect_reading_order_despite_repeated_blocks
     sent every repetition of one string to the same index, which registered as an inversion and
     capped self-comparison at 0.9973 across the pinned corpus. Ties now resolve towards the
     block's own position.
+
+    The repeats must straddle a distinct block. With them adjacent, first-index argmax collapses
+    them all to index 0 and the sequence 0 <= 0 <= 0 <= 3 carries no inversion, so the fixture
+    passes with the tie-break deleted and pins nothing. Interleaving them makes the untie-broken
+    argmax emit 0, 1, 0, which inverts: this fixture scores 1.0 with the tie-break and 0.6667
+    without it.
     """
-    page = PageProjection(("Same", "Same", "Same", "Tail"), ("text_block",) * 4, (), ())
+    page = PageProjection(("Same", "Tail", "Same"), ("text_block",) * 3, (), ())
     assert score_page(page, page)["reading_order_similarity"] == 1.0
+    adjacent = PageProjection(("Same", "Same", "Same", "Tail"), ("text_block",) * 4, (), ())
+    assert score_page(adjacent, adjacent)["reading_order_similarity"] == 1.0
 
 
 def test_a_paragraph_holding_table_cells_costs_exactly_one_kind_substitution() -> None:
@@ -536,3 +545,115 @@ def test_a_paragraph_holding_table_cells_costs_exactly_one_kind_substitution() -
     scores = score_page(truth, paragraph)
     assert scores["text_content_similarity"] == 1.0
     assert scores["reading_order_similarity"] == 1 - 1 / len(truth.block_kinds)
+
+
+def test_table_structure_counts_spanning_cells_by_span_not_by_cell_object() -> None:
+    """Pins colspan and rowspan arithmetic in both the AST and the HTML projection.
+
+    The suite's other table fixture has a colspan in a row that is not the widest and uses no
+    rowspan at all, so a colspan-blind column count and a rowspan-blind slot count both happen to
+    produce the right answer there. Three independent mistakes therefore went unnoticed: counting
+    ``len(row.cells)`` for columns, dropping rowspan from ``cell_slots``, and incrementing the HTML
+    parser's column count by one per cell. This is load-bearing arithmetic: 109 of the 428 pinned
+    tables carry a colspan above 1 and 96 carry a rowspan above 1. Here the spanning row IS the
+    widest, so a span-blind count reports 2 columns instead of 3, and the rowspan makes cell_slots
+    differ from the cell count.
+    """
+    table = Table(
+        header=TableRow(cells=[TableCell(content=[Text(content="Wide")], colspan=3)]),
+        rows=[
+            TableRow(
+                cells=[
+                    TableCell(content=[Text(content="Tall")], rowspan=2),
+                    TableCell(content=[Text(content="B")]),
+                ]
+            )
+        ],
+    )
+    projected = project_ast(Document(children=[table])).tables[0]
+    # 3 columns from the spanning header, 2 rows, slots = 3 + (1*2) + 1 = 6.
+    assert (projected.rows, projected.columns, projected.cell_slots) == (2, 3, 6)
+
+    html = "<table><tr><th colspan='3'>Wide</th></tr>" "<tr><td rowspan='2'>Tall</td><td>B</td></tr></table>"
+    record = {
+        "page_info": {"page_no": 0, "image_path": "p.jpg", "height": 1000, "width": 800},
+        "layout_dets": [{"category_type": "table", "order": 0, "html": html, "ignore": False}],
+    }
+    from_html = project_annotation(record).projection.tables[0]
+    assert (from_html.rows, from_html.columns, from_html.cell_slots) == (2, 3, 6)
+
+
+def test_two_block_pages_are_still_ordered() -> None:
+    """The order term must engage at two blocks, which is the smallest orderable page.
+
+    39 pinned pages carry exactly two text blocks. Raising the ``< 2`` guard to ``< 3`` would make
+    swapping them free on every one of those pages while every other test still passed, because
+    the reversal test uses three blocks. Two blocks is the boundary where order first exists.
+    """
+    truth = PageProjection(("First", "Second"), ("text_block",) * 2, (), ())
+    swapped = PageProjection(("Second", "First"), ("text_block",) * 2, (), ())
+
+    assert score_page(truth, truth)["reading_order_similarity"] == 1.0
+    assert score_page(truth, swapped)["reading_order_similarity"] == 0.0
+
+
+def test_the_page_text_stream_keeps_a_separator_between_blocks() -> None:
+    """Joining blocks without a separator would fuse adjacent words into one token.
+
+    ``score_page`` concatenates a page's blocks into one text stream. Joining with the empty
+    string makes a parser that splits one block into two score identically to one that keeps it
+    whole, and changes the score on 845 of the 981 pinned pages under a block-splitting
+    degradation. The separator therefore has to be a real space.
+    """
+    truth = PageProjection(("alpha", "beta"), ("text_block",) * 2, (), ())
+    fused = PageProjection(("alphabeta",), ("text_block",), (), ())
+
+    assert score_page(truth, truth)["text_content_similarity"] == 1.0
+    assert score_page(truth, fused)["text_content_similarity"] < 1.0
+
+
+def test_normalization_strips_surrounding_whitespace() -> None:
+    """Layout padding around a block must not cost score.
+
+    208 projected ground-truth blocks carry leading or trailing whitespace, and 351 pinned strings
+    normalize differently with and without the strip. Without it ``' x'`` scores 0.5 against
+    ``'x'``, so pure padding would look like a content defect.
+    """
+    assert oracles.normalize_text("  padded text \n") == "padded text"
+    assert content_similarity("  padded text \n", "padded text") == 1.0
+
+
+def test_inline_code_spans_contribute_their_text() -> None:
+    """Monospace runs must reach the compared text stream.
+
+    ``src/all2md/parsers/pdf.py`` emits an inline ``Code`` node for a monospace span, so this is a
+    live PDF-lane path that had no coverage. Measured, not assumed: narrowing ``_node_text``'s
+    isinstance check to ``Text`` alone does NOT change the result, because ``Code`` has no children
+    and the ``getattr(node, "content")`` fallback returns the same string. This test therefore pins
+    the observable contract (the text arrives) rather than the isinstance fast path, and it fails if
+    a future change routes inline nodes without a plain ``content`` attribute.
+    """
+    document = Document(
+        children=[Paragraph(content=[Text(content="run"), Code(content="ls -la")])],
+    )
+
+    assert project_ast(document).text_blocks == ("run ls -la",)
+
+
+def test_formula_comparison_folds_compatibility_equivalent_spellings() -> None:
+    """A fullwidth and an ASCII spelling of the same character must be one formula.
+
+    The pinned dataset writes the trailing comma of 20 spans as fullwidth U+FF0C in the span's
+    ``latex`` field and as ASCII in the detection's ``text`` field. The text metric NFKC-folds and
+    forgives this; without the same folding here, perfect text fidelity and perfect formula
+    fidelity were mutually unsatisfiable on 9 pinned pages, capping formula_content_similarity at
+    0.99924404 forever. NFKC neither casefolds nor collapses whitespace, so the two properties
+    below still hold.
+    """
+    truth = PageProjection((), (), (), (FormulaProjection("inline", "$ R^{2}\uff0c $"),))
+    ascii_spelling = PageProjection((), (), (), (FormulaProjection("inline", "$ R^{2}, $"),))
+    assert score_page(truth, ascii_spelling)["formula_content_similarity"] == 1.0
+
+    # NFKC must not erase the distinctions the metric relies on.
+    assert oracles.normalize_formula("$\\Gamma$") != oracles.normalize_formula("$\\gamma$")
+    assert oracles.normalize_formula("$\\text{a b}$") != oracles.normalize_formula("$\\text{ab}$")

@@ -43,12 +43,28 @@ def _pdf_bytes(page_id: str) -> bytes:
     return f"%PDF-1.7\nsynthetic {page_id}\n%%EOF\n".encode()
 
 
+def _synthetic_manifest_anchor(annotation: bytes) -> str:
+    """Aggregate digest of the synthetic page bodies these tests serve.
+
+    The shipped constant describes the real corpus, so tests that build a full synthetic cache have
+    to pin the mechanism against their own bytes. Recomputing it here from the same page ids keeps
+    the check live in tests rather than disabled.
+    """
+    digest = hashlib.sha256()
+    for record in json.loads(annotation):
+        page_id = Path(str(record["page_info"]["image_path"])).stem  # type: ignore[index]
+        body = _pdf_bytes(page_id)
+        digest.update(f"{page_id}\x00{hashlib.sha256(body).hexdigest()}\x00{len(body)}\n".encode())
+    return digest.hexdigest()
+
+
 def _install_downloader(
     monkeypatch: pytest.MonkeyPatch,
     annotation: bytes,
 ) -> list[str]:
     calls: list[str] = []
     monkeypatch.setattr(corpus, "ANNOTATION_SHA256", hashlib.sha256(annotation).hexdigest())
+    monkeypatch.setattr(corpus, "CORPUS_MANIFEST_SHA256", _synthetic_manifest_anchor(annotation))
 
     def download(url: str, destination: Path, **_: object) -> int:
         calls.append(url)
@@ -153,6 +169,64 @@ def test_valid_warm_cache_revalidates_without_downloading(
     assert warm.complete is False
     assert warm.expected_pages == 981
     assert tuple(page.page_id for page in warm.pages) == ("page-0000", "page-0001")
+
+
+def test_a_complete_manifest_that_misses_the_committed_anchor_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The page PDFs need a committed root of trust, not trust-on-first-use.
+
+    Each page's digest is recorded from whatever bytes the first download produced, and a truncated
+    HTTP response is not an error: CPython's HTTP client returns a short body without raising. So a
+    mid-stream reset would silently redefine a page's ground truth, and a baseline recorded from that
+    run would commit the wrong fidelity number with no signal. The aggregate anchor turns any such
+    divergence into a hard failure. Serving one page a byte short is exactly that divergence.
+    """
+    annotation = _annotation_bytes()
+    _install_downloader(monkeypatch, annotation)
+    honest = corpus.CORPUS_MANIFEST_SHA256
+    real_download = corpus.corpus_download._download
+
+    def truncating_download(url: str, destination: Path, **kwargs: object) -> int:
+        written = real_download(url, destination, **kwargs)
+        # Match on content, not on the name: transport writes to a dot-prefixed staging file whose
+        # suffix is `.download.part`, so a `.pdf` name test silently truncates nothing.
+        body = destination.read_bytes()
+        if body.startswith(b"%PDF"):
+            destination.write_bytes(body[:-1])
+            return written - 1
+        return written
+
+    monkeypatch.setattr(corpus.corpus_download, "_download", truncating_download)
+
+    with pytest.raises(corpus.CorpusCacheError) as raised:
+        corpus.load_corpus(tmp_path, workers=1)
+
+    assert str(raised.value).startswith(f"corpus manifest SHA-256 mismatch: expected {honest}, got ")
+
+
+def test_a_limited_run_skips_the_anchor_because_its_manifest_is_partial(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The aggregate describes all 981 pages, so a partial manifest cannot satisfy it.
+
+    A ``--limit`` run must therefore still work; it is already barred from the gate for lacking the
+    full denominator, so skipping the check costs no trust in a gated result. Pinning this stops a
+    later tightening from making every smoke run unrunnable.
+    """
+    cold, _, _ = _prime_cache(tmp_path, monkeypatch, limit=2)
+    # Set the anchor to a value the 2-page manifest cannot match, AFTER priming, so a warm reload
+    # proves the skip rather than the helper's synthetic anchor.
+    monkeypatch.setattr(corpus, "CORPUS_MANIFEST_SHA256", "0" * 64)
+    _forbid_download(monkeypatch)
+
+    warm = corpus.load_corpus(tmp_path, limit=2, workers=1)
+
+    assert warm == cold
+    assert warm.complete is False
+    assert len(warm.pages) == 2
 
 
 def test_annotation_sha256_mismatch_is_rejected_before_page_downloads(

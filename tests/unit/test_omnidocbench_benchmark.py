@@ -143,6 +143,34 @@ def test_evaluation_serializes_multiple_pymupdf_pages_on_the_caller_thread(
     ]
 
 
+def test_conversion_reports_progress_while_it_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A multi-hour loop must say where it is, or a timeout kill leaves an unreadable log.
+
+    The scheduled job allows 240 minutes for 981 PDFs. With output only before and after the loop,
+    a run killed at that limit shows the corpus line and then nothing, so there is no way to tell
+    whether it died on the third page or the nine hundredth. The final page always reports, so the
+    last line states the true stopping point even when the count is not a multiple of the interval.
+    """
+    snapshot = _snapshot(tmp_path, ("page-a", "page-b", "page-c"))
+
+    def fake_to_ast(_source: Path, **_kwargs):
+        return Document(children=[Paragraph(content=[Text(content="Body")])])
+
+    monkeypatch.setattr("all2md.to_ast", fake_to_ast)
+    benchmark.evaluate_corpus(
+        snapshot,
+        {page_id: _truth(page_id) for page_id in ("page-a", "page-b", "page-c")},
+        progress_every=2,
+    )
+
+    assert capsys.readouterr().out.splitlines() == [
+        "scored 2/3 pages; failures=0",
+        "scored 3/3 pages; failures=0",
+    ]
+
+
 def test_failed_ast_conversion_contributes_zero_scores(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A parser exception must remain visible and must not earn absence-match credit."""
     snapshot = _snapshot(tmp_path, ("page-a",))
@@ -286,7 +314,7 @@ def test_normalization_records_variance_failures_and_unsupported_dimensions(tmp_
     assert payload["conversion_failures"] == {"page-b": "RuntimeError: broken PDF"}
     assert payload["unscored_annotation_categories"] == {"figure": 2}
     assert payload["explicitly_ignored_annotations"] == 2
-    assert payload["provenance"]["oracle_schema_version"] == 3
+    assert payload["provenance"]["oracle_schema_version"] == 4
     assert payload["provenance"]["parser_config"]["layout_analysis_mode"] == "enabled"
     assert payload["provenance"]["parser_runtime"] == {
         "pymupdf": "1.28.0",
