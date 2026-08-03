@@ -267,6 +267,27 @@ class TestTableDetection:
         # Tables should be flattened to paragraphs
         assert isinstance(ast_doc, Document)
 
+    def test_assign_tables_to_columns_unmatched_default(self) -> None:
+        """Test _assign_tables_to_columns defaults to matching column or 0."""
+        converter = PdfToAstConverter()
+        import fitz
+        # Table center is x=150
+        table_info = [{"bbox": fitz.Rect(100, 100, 200, 200)}]
+        # Column 0 is at x=0..80. Column 1 is at x=90..250.
+        columns = [[{"bbox": [0, 0, 80, 400]}], [{"bbox": [90, 0, 250, 400]}]]
+        converter._assign_tables_to_columns(table_info, columns)
+        assert table_info[0]["column"] == 1
+
+    def test_assign_tables_to_columns_empty_column_zero(self) -> None:
+        """Test _assign_tables_to_columns when column 0 is empty and table matches column 1."""
+        converter = PdfToAstConverter()
+        import fitz
+        # Table center is x=150. Column 0 spans 0..80. Column 1 spans 90..250.
+        table_info = [{"bbox": fitz.Rect(100, 100, 200, 200)}]
+        columns = [[], [{"bbox": [90, 0, 250, 400]}]]
+        converter._assign_tables_to_columns(table_info, columns)
+        # When column 0 is empty, table["column"] remains 0 under the bug instead of being assigned to col 1 (which matches x=150)
+        assert table_info[0]["column"] == 1
 
 @pytest.mark.unit
 class TestImageExtraction:

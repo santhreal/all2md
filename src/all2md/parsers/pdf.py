@@ -1333,7 +1333,8 @@ class PdfToAstConverter(BaseParser):
         """
         for table in table_info:
             table_center_x = (table["bbox"].x0 + table["bbox"].x1) / 2
-            table["column"] = 0  # Default to first column
+            assigned_col = 0
+            matched = False
 
             for col_idx, column in enumerate(columns):
                 if column:
@@ -1341,9 +1342,13 @@ class PdfToAstConverter(BaseParser):
                     if col_x_values:
                         col_min_x = min(col_x_values)
                         col_max_x = max(b["bbox"][2] for b in column if "bbox" in b)
+                        if not matched:
+                            assigned_col = col_idx
+                            matched = True
                         if col_min_x <= table_center_x <= col_max_x:
-                            table["column"] = col_idx
+                            assigned_col = col_idx
                             break
+            table["column"] = assigned_col
 
     def _calculate_average_line_height(self, columns: list[list[dict]]) -> float | None:
         """Calculate average line height across all columns.
